@@ -1,8 +1,10 @@
 import concurrent.futures
 import functools
+import logging
 import pathlib
 import struct
 import sys
+import traceback
 
 import fastapi
 import fastapi.responses
@@ -20,6 +22,25 @@ app = fastapi.FastAPI(
     # Support extended JSON (NaN, Inf, -Inf).
     default_response_class=fastapi.responses.ORJSONResponse,
 )
+
+logger = logging.getLogger('scope.viewer')
+
+
+@app.middleware('http')
+async def log_requests(request: fastapi.Request, call_next):
+  logger.info('Request start: %s %s', request.method, request.url.path)
+  try:
+    response = await call_next(request)
+  except Exception:
+    logger.error(
+        'Unhandled exception for %s %s\n%s',
+        request.method, request.url.path, traceback.format_exc())
+    raise
+  logger.info(
+      'Request end: %s %s -> %s',
+      request.method, request.url.path, response.status_code)
+  return response
+
 basedir = config.basedir.rstrip('/')
 fs = dict(
   elements=filesystems.Elements,
@@ -69,7 +90,14 @@ def get_col(colid: str):
   runid = colid.rsplit(':', 2)[0]  # Remove metric name and scope folder.
   if ext == 'float':
     buffer = fs.read(path)
-    steps, values = tuple(zip(*struct.iter_unpack('>qd', buffer)))
+    total = len(buffer) // 16
+    stride = max(1, total // config.maxpoints) if config.maxpoints else 1
+    if stride > 1:
+      records = struct.iter_unpack('>qd', buffer)
+      sampled = [r for i, r in enumerate(records) if i % stride == 0]
+      steps, values = tuple(zip(*sampled)) if sampled else ((), ())
+    else:
+      steps, values = tuple(zip(*struct.iter_unpack('>qd', buffer)))
     return {'id': colid, 'run': runid, 'steps': steps, 'values': values}
   elif ext in ('txt', 'png', 'jpg', 'jpeg', 'mp4', 'webm'):
     buffer = fs.read(path + '/index')

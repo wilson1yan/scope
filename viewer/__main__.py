@@ -22,6 +22,8 @@ def main():
       port=config.port,
       reload=config.debug,
       workers=None if config.debug else config.workers,
+      log_level='info',
+      access_log=True,
   )
 
 

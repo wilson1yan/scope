@@ -10,6 +10,7 @@ config = elements.Flags(
     cachedir='/tmp/scope-cache',
     cachesize=int(4e9),  # 4 GB
     maxdepth=2,
+    maxpoints=10000,
     workers=32,
     debug=False,
 ).parse()
